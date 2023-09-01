@@ -37,6 +37,7 @@ mkdir -p code/graphstorm
 cp -r "${GSF_HOME}/python" code/graphstorm/
 cp -r "${GSF_HOME}/sagemaker" code/graphstorm/sagemaker
 cp -r "${GSF_HOME}/docker/sagemaker/build_artifacts" build_artifacts
+cp -r "${GSF_HOME}/examples" code/graphstorm/examples
 
 # Build OSS docker for EC2 instances that an pull ECR docker images
 DOCKER_FULLNAME="${IMAGE_NAME}:${TAG}"
