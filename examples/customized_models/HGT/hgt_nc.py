@@ -372,12 +372,14 @@ def main(args):
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser("Training HGT model with the GraphStorm Framework")
-    argparser.add_argument("--yaml-config-file", type=str, required=True,
+    argparser.add_argument("--cf", type=str, required=True,
                            help="The GraphStorm YAML configuration file path.")
     argparser.add_argument("--node-feat", type=str, required=True,
                            help="The name of the node features. \
                                  Format is nodetype1:featname1,featname2-nodetype2:featname1,...")
     argparser.add_argument("--num-heads", type=int, default=4,
+                           help="The number of heads for HGT's self-attention module")
+    argparser.add_argument("--save-model-path", type=str, default='/tmp/gsgnn_model/model_checkpoint',
                            help="The number of heads for HGT's self-attention module")
     argparser.add_argument("--part-config", type=str, required=True,
                            help="The partition config file. \
