@@ -371,7 +371,7 @@ def main(args):
     # trainer.setup_evaluator(evaluator)
     # Optional: set up a task tracker to show the progress of training.
     tracker = GSSageMakerTaskTracker(config, gs.get_rank())
-    trainer.setup_task_tracker(tracker)
+    # trainer.setup_task_tracker(tracker)
 
     # Start the training process.
     # trainer.fit(train_loader=dataloader,
@@ -409,8 +409,12 @@ if __name__ == '__main__':
                                  Format is nodetype1:featname1,featname2-nodetype2:featname1,...")
     argparser.add_argument("--num-heads", type=int, default=4,
                            help="The number of heads for HGT's self-attention module")
-    argparser.add_argument("--save-model-path", type=str, default='/tmp/gsgnn_model/model_checkpoint',
-                           help="The number of heads for HGT's self-attention module")
+    argparser.add_argument("--restore-model-path", type=str, default='/opt/ml/gsgnn_model/model_checkpoint',
+                           help="path to restore saved model")
+    argparser.add_argument("--save-embed-path", type=str, default='/tmp/infer_output',
+                           help="path to save embedings")
+    argparser.add_argument("--save-prediction-path", type=str, default='/tmp/infer_output',
+                           help="path to save predictions")
     argparser.add_argument("--part-config", type=str, required=True,
                            help="The partition config file. \
                                  For customized models, MUST have this argument!!")
