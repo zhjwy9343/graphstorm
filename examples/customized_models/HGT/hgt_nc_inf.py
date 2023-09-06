@@ -300,24 +300,31 @@ def main(args):
         node_feat_fields[node_type] = feat_names.split(',')
 
     # Define the GraphStorm training dataset
-    train_data = GSgnnNodeTrainData(config.graph_name,
-                                    config.part_config,
-                                    train_ntypes=config.target_ntype,
+    # train_data = GSgnnNodeTrainData(config.graph_name,
+    #                                 config.part_config,
+    #                                 train_ntypes=config.target_ntype,
+    #                                 node_feat_field=node_feat_fields,
+    #                                 label_field=config.label_field)
+
+    # Create a dataset for inference.
+    infer_data = GSgnnNodeInferData(config.graph_name, config.part_config,
+                                    eval_ntypes=config.target_ntype,
                                     node_feat_field=node_feat_fields,
                                     label_field=config.label_field)
+
 
     # Create input arguments for the HGT model
     node_dict = {}
     edge_dict = {}
-    for ntype in train_data.g.ntypes:
+    for ntype in infer_data.g.ntypes:
         node_dict[ntype] = len(node_dict)
-    for etype in train_data.g.canonical_etypes:
+    for etype in infer_data.g.canonical_etypes:
         edge_dict[etype] = len(edge_dict)
 
     nfeat_dims = {}
     for ntype, _ in node_dict.items():
-        if train_data.g.nodes[ntype].data.get('feat') is not None:
-            nfeat_dims[ntype] = train_data.g.nodes[ntype].data['feat'].shape[-1]
+        if infer_data.g.nodes[ntype].data.get('feat') is not None:
+            nfeat_dims[ntype] = infer_data.g.nodes[ntype].data['feat'].shape[-1]
         else:
             nfeat_dims[ntype] = 0
 
@@ -336,22 +343,22 @@ def main(args):
                 lr=config.lr)
 
     # Create a trainer for the node classification task.
-    trainer = GSgnnNodePredictionTrainer(model, gs.get_rank(), topk_model_to_save=config.topk_model_to_save)
-    trainer.setup_device(device=device)
+    # trainer = GSgnnNodePredictionTrainer(model, gs.get_rank(), topk_model_to_save=config.topk_model_to_save)
+    # trainer.setup_device(device=device)
 
     # Define the GraphStorm train dataloader
-    dataloader = GSgnnNodeDataLoader(train_data, train_data.train_idxs, fanout=config.fanout,
-                                     batch_size=config.batch_size, device=device, train_task=True)
+    # dataloader = GSgnnNodeDataLoader(train_data, train_data.train_idxs, fanout=config.fanout,
+    #                                  batch_size=config.batch_size, device=device, train_task=True)
 
     # Optional: Define the evaluation dataloader
-    eval_dataloader = GSgnnNodeDataLoader(train_data, train_data.val_idxs,fanout=config.fanout,
-                                          batch_size=config.eval_batch_size, device=device,
-                                          train_task=False)
+    # eval_dataloader = GSgnnNodeDataLoader(train_data, train_data.val_idxs,fanout=config.fanout,
+    #                                       batch_size=config.eval_batch_size, device=device,
+    #                                       train_task=False)
 
     # Optional: Define the evaluation dataloader
-    test_dataloader = GSgnnNodeDataLoader(train_data, train_data.test_idxs,fanout=config.fanout,
-                                          batch_size=config.eval_batch_size, device=device,
-                                          train_task=False)
+    # test_dataloader = GSgnnNodeDataLoader(train_data, train_data.test_idxs,fanout=config.fanout,
+    #                                       batch_size=config.eval_batch_size, device=device,
+    #                                       train_task=False)
 
     # Optional: set up a evaluator
     evaluator = GSgnnAccEvaluator(config.eval_frequency,
@@ -361,42 +368,36 @@ def main(args):
                                   config.early_stop_burnin_rounds,
                                   config.early_stop_rounds,
                                   config.early_stop_strategy)
-    trainer.setup_evaluator(evaluator)
+    # trainer.setup_evaluator(evaluator)
     # Optional: set up a task tracker to show the progress of training.
     tracker = GSSageMakerTaskTracker(config, gs.get_rank())
     trainer.setup_task_tracker(tracker)
 
     # Start the training process.
-    trainer.fit(train_loader=dataloader,
-                num_epochs=config.num_epochs,
-                val_loader=eval_dataloader,
-                test_loader=test_dataloader,
-                save_model_path=config.save_model_path,
-                use_mini_batch_infer=True)
+    # trainer.fit(train_loader=dataloader,
+    #             num_epochs=config.num_epochs,
+    #             val_loader=eval_dataloader,
+    #             test_loader=test_dataloader,
+    #             save_model_path=config.save_model_path,
+    #             use_mini_batch_infer=True)
 
     # After training, get the best model from the trainer.
     # best_model_path = trainer.get_best_model_path()
     # model.restore_model(best_model_path)
 
-    # Create a dataset for inference.
-    # infer_data = GSgnnNodeInferData(config.graph_name, config.part_config,
-    #                                 eval_ntypes=config.target_ntype,
-    #                                 node_feat_field=node_feat_fields,
-    #                                 label_field=config.label_field)
-
     # Create an inference for a node task.
-    # infer = GSgnnNodePredictionInfer(model, gs.get_rank())
-    # infer.setup_device(device=device)
-    # infer.setup_evaluator(evaluator)
-    # infer.setup_task_tracker(tracker)
-    # dataloader = GSgnnNodeDataLoader(infer_data, infer_data.test_idxs,
-    #                                 fanout=config.fanout, batch_size=100, device=device,
-    #                                 train_task=False)
+    infer = GSgnnNodePredictionInfer(model, gs.get_rank())
+    infer.setup_device(device=device)
+    infer.setup_evaluator(evaluator)
+    infer.setup_task_tracker(tracker)
+    dataloader = GSgnnNodeDataLoader(infer_data, infer_data.test_idxs,
+                                    fanout=config.fanout, batch_size=100, device=device,
+                                    train_task=False)
 
     # Run inference on the inference dataset and save the GNN embeddings in the specified path.
-    # infer.infer(dataloader, save_embed_path=config.save_embed_path,
-    #             save_prediction_path=config.save_prediction_path,
-    #             use_mini_batch_infer=True)
+    infer.infer(dataloader, save_embed_path=config.save_embed_path,
+                save_prediction_path=config.save_prediction_path,
+                use_mini_batch_infer=True)
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser("Training HGT model with the GraphStorm Framework")
