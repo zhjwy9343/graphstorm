@@ -20,7 +20,7 @@
 import graphstorm as gs
 from graphstorm.config import get_argument_parser
 from graphstorm.config import GSConfig
-from graphstorm.inference import GSgnnLinkPredictionInfer
+from graphstorm.inference import GSgnnLinkPredictionInferrer
 from graphstorm.eval import GSgnnMrrLPEvaluator
 from graphstorm.dataloading import GSgnnEdgeInferData
 from graphstorm.dataloading import GSgnnLinkPredictionTestDataLoader
@@ -41,11 +41,12 @@ def main(config_args):
     infer_data = GSgnnEdgeInferData(config.graph_name,
                                     config.part_config,
                                     eval_etypes=config.eval_etype,
-                                    node_feat_field=config.node_feat_name)
+                                    node_feat_field=config.node_feat_name,
+                                    decoder_edge_feat=config.decoder_edge_feat)
     model = gs.create_builtin_lp_model(infer_data.g, config, train_task=False)
-    model.restore_model(config.restore_model_path)
-    # TODO(zhengda) we should use a different way to get rank.
-    infer = GSgnnLinkPredictionInfer(model, gs.get_rank())
+    model.restore_model(config.restore_model_path,
+                        model_layer_to_load=config.restore_model_layers)
+    infer = GSgnnLinkPredictionInferrer(model)
     infer.setup_device(device=device)
     if not config.no_validation:
         infer.setup_evaluator(
@@ -54,7 +55,7 @@ def main(config_args):
                                 config.num_negative_edges_eval,
                                 config.lp_decoder_type))
         assert len(infer_data.test_idxs) > 0, "There is not test data for evaluation."
-    tracker = gs.create_builtin_task_tracker(config, infer.rank)
+    tracker = gs.create_builtin_task_tracker(config)
     infer.setup_task_tracker(tracker)
     # We only support full-graph inference for now.
     if config.eval_negative_sampler == BUILTIN_LP_UNIFORM_NEG_SAMPLER:
@@ -76,7 +77,9 @@ def main(config_args):
     infer.infer(infer_data, dataloader,
                 save_embed_path=config.save_embed_path,
                 edge_mask_for_gnn_embeddings=None, # LM infer does not use GNN
-                node_id_mapping_file=config.node_id_mapping_file)
+                use_mini_batch_infer=config.use_mini_batch_infer,
+                node_id_mapping_file=config.node_id_mapping_file,
+                save_embed_format=config.save_embed_format)
 
 def generate_parser():
     """ Generate an argument parser

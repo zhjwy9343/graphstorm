@@ -16,16 +16,21 @@
     Builtin configs
 """
 
-BUILTIN_GNN_ENCODER = ["rgat", "rgcn", "sage"]
-BUILTIN_ENCODER = ["lm", "mlp"] + ["rgat", "rgcn", "sage"]
+BUILTIN_GNN_ENCODER = ["rgat", "rgcn", "sage", "hgt"]
+BUILTIN_ENCODER = ["lm", "mlp"] + ["rgat", "rgcn", "sage", "hgt"]
 SUPPORTED_BACKEND = ["gloo", "nccl"]
 
 GRAPHSTORM_MODEL_EMBED_LAYER = "embed"
+GRAPHSTORM_MODEL_DENSE_EMBED_LAYER = "dense_embed"
+GRAPHSTORM_MODEL_SPARSE_EMBED_LAYER = "sparse_embed"
 GRAPHSTORM_MODEL_GNN_LAYER = "gnn"
 GRAPHSTORM_MODEL_DECODER_LAYER = "decoder"
 GRAPHSTORM_MODEL_ALL_LAYERS = [GRAPHSTORM_MODEL_EMBED_LAYER,
                                GRAPHSTORM_MODEL_GNN_LAYER,
                                GRAPHSTORM_MODEL_DECODER_LAYER]
+GRAPHSTORM_MODEL_LAYER_OPTIONS = GRAPHSTORM_MODEL_ALL_LAYERS + \
+        [GRAPHSTORM_MODEL_DENSE_EMBED_LAYER,
+         GRAPHSTORM_MODEL_SPARSE_EMBED_LAYER]
 
 BUILTIN_LP_LOSS_CROSS_ENTROPY = "cross_entropy"
 BUILTIN_LP_LOSS_LOGSIGMOID_RANKING = "logsigmoid"

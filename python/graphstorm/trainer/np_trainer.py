@@ -26,7 +26,7 @@ from ..model.node_gnn import GSgnnNodeModelInterface
 from ..model.gnn import do_full_graph_inference, GSgnnModelBase, GSgnnModel
 from .gsgnn_trainer import GSgnnTrainer
 
-from ..utils import sys_tracker, rt_profiler, print_mem
+from ..utils import sys_tracker, rt_profiler, print_mem, get_rank
 from ..utils import barrier, is_distributed, get_backend
 
 class GSgnnNodePredictionTrainer(GSgnnTrainer):
@@ -36,13 +36,11 @@ class GSgnnNodePredictionTrainer(GSgnnTrainer):
     ----------
     model : GSgnnNodeModel
         The GNN model for node prediction.
-    rank : int
-        The rank.
     topk_model_to_save : int
         The top K model to save.
     """
-    def __init__(self, model, rank, topk_model_to_save=1):
-        super(GSgnnNodePredictionTrainer, self).__init__(model, rank, topk_model_to_save)
+    def __init__(self, model, topk_model_to_save=1):
+        super(GSgnnNodePredictionTrainer, self).__init__(model, topk_model_to_save)
         assert isinstance(model, GSgnnNodeModelInterface) and isinstance(model, GSgnnModelBase), \
                 "The input model is not a node model. Please implement GSgnnNodeModelBase."
 
@@ -160,10 +158,10 @@ class GSgnnNodePredictionTrainer(GSgnnTrainer):
                     th.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm, grad_norm_type)
                 self.log_metric("Train loss", loss.item(), total_steps)
 
-                if i % 20 == 0 and self.rank == 0:
+                if i % 20 == 0 and get_rank() == 0:
                     rt_profiler.print_stats()
                     logging.info("Part %d | Epoch %05d | Batch %03d | Loss: %.4f | Time: %.4f",
-                                 self.rank, epoch, i,  loss.item(), time.time() - batch_tic)
+                                 get_rank(), epoch, i,  loss.item(), time.time() - batch_tic)
 
                 val_score = None
                 if self.evaluator is not None and \
@@ -199,7 +197,7 @@ class GSgnnNodePredictionTrainer(GSgnnTrainer):
             # end of an epoch
             barrier()
             epoch_time = time.time() - epoch_start
-            if self.rank == 0:
+            if get_rank() == 0:
                 logging.info("Epoch %d take %.3f seconds", epoch, epoch_time)
 
             val_score = None
@@ -222,7 +220,7 @@ class GSgnnNodePredictionTrainer(GSgnnTrainer):
 
         rt_profiler.save_profile()
         print_mem(device)
-        if self.rank == 0 and self.evaluator is not None:
+        if get_rank() == 0 and self.evaluator is not None:
             output = {'best_test_score': self.evaluator.best_test_score,
                        'best_val_score': self.evaluator.best_val_score,
                        'peak_GPU_mem_alloc_MB': th.cuda.max_memory_allocated(device) / 1024 / 1024,
@@ -250,6 +248,8 @@ class GSgnnNodePredictionTrainer(GSgnnTrainer):
             The dataloader for validation data
         test_loader : GSNodeDataLoader
             The dataloader for test data.
+        use_mini_batch_infer: bool
+            Whether do mini-batch inference
         total_steps: int
             Total number of iterations.
         return_proba: bool
@@ -261,6 +261,18 @@ class GSgnnNodePredictionTrainer(GSgnnTrainer):
         """
         teval = time.time()
         sys_tracker.check('before prediction')
+
+        metric = set(self.evaluator.metric)
+        need_proba = metric.intersection({'roc_auc', 'per_class_roc_auc', 'precision_recall'})
+        need_label_pred = metric.intersection({'accuracy', 'f1_score', 'per_class_f1_score'})
+        assert len(need_proba) == 0 or len(need_label_pred) == 0, \
+            f"{need_proba} requires return_proba==True, \
+                         but {need_label_pred} requires return_proba==False."
+        if len(need_proba) > 0 and return_proba is False:
+            return_proba = True
+            logging.warning("%s requires return_proba==True. \
+                Set return_proba to True.", need_proba)
+
         if use_mini_batch_infer:
             val_pred, _, val_label = node_mini_batch_gnn_predict(model, val_loader, return_proba,
                                                                  return_label=True)
@@ -309,7 +321,7 @@ class GSgnnNodePredictionTrainer(GSgnnTrainer):
         val_score, test_score = self.evaluator.evaluate(val_pred, test_pred,
                                                         val_label, test_label, total_steps)
         sys_tracker.check('evaluate')
-        if self.rank == 0:
+        if get_rank() == 0:
             self.log_print_metrics(val_score=val_score,
                                     test_score=test_score,
                                     dur_eval=time.time() - teval,
