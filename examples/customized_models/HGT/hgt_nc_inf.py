@@ -386,7 +386,7 @@ def main(args):
     # model.restore_model(best_model_path)
 
     # Create an inference for a node task.
-    infer = GSgnnNodePredictionInfer(model, gs.get_rank())
+    infer = GSgnnNodePredictionInferrer(model, gs.get_rank())
     infer.setup_device(device=device)
     infer.setup_evaluator(evaluator)
     infer.setup_task_tracker(tracker)
