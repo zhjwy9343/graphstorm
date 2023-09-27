@@ -12,7 +12,7 @@ import graphstorm as gs
 from graphstorm.config import GSConfig
 from graphstorm import model as gsmodel
 from graphstorm.trainer import GSgnnNodePredictionTrainer
-from graphstorm.inference import GSgnnNodePredictionInfer
+from graphstorm.inference import GSgnnNodePredictionInferrer
 from graphstorm.dataloading import GSgnnNodeTrainData, GSgnnNodeInferData
 from graphstorm.dataloading import GSgnnNodeDataLoader
 from graphstorm.eval import GSgnnAccEvaluator
