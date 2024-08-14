@@ -13,7 +13,9 @@ In general, these outputs are not directly consumable due to the node ID differe
 
 Remapping inputs
 -----------------
-Inputs of the node ID remapping are the :ref:`outputs of GraphStorm model training and inference <gs-output>`, which normally include two sets of ``.pt`` files. One set includes files of shuffled integer node IDs, while another includes the corresponding embeddings or predictions in the same row order as the node ID files. Below box shows a simple example of these files.
+Inputs of the node ID remapping are the :ref:`outputs of GraphStorm model training and inference <gs-output>`, which normally include two sets of ``.pt`` files. One set includes files of shuffled integer node IDs, while another includes the corresponding embeddings or predictions in the same row order as the node ID files. 
+
+Below box shows a simple example of node prediction output files.
 
 .. code-block:: bash
 
@@ -51,6 +53,8 @@ Inputs of the node ID remapping are the :ref:`outputs of GraphStorm model traini
     10                  |   0.112,0.123,-0.011,...      10                    |   0
     1                   |   0.872,0.321,-0.901,...      1                     |   0
     23                  |   0.472,0.432,-0.732,...      23                    |   1
+
+Another set of important input data for remapping is the node and edge mapping files generated and saved by graph construction guide.
 
 Remapping CLIs
 ---------------
