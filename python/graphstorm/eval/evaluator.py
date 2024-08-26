@@ -465,6 +465,12 @@ class GSgnnClassificationEvaluator(GSgnnBaseEvaluator, GSgnnPredictionEvalInterf
     metric.
 
     This class replaces the ``GSgnnAccEvaluator`` since v0.3.
+    
+    .. math::
+
+        d_r(h, t)==\|h\circ r-t\|
+        
+        gamma - {d_r(h, t)}^2
 
     Parameters
     ----------
