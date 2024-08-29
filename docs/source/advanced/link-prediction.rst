@@ -5,6 +5,7 @@ The relation\_emb values are initialized from a uniform distribution.
     .. math::
         score = gamma - \|head\_emb \circ relation\_emb - tail\_emb\|^2
 
+To learn more information about RotatE, please refer to `this doc <https://dglke.dgl.ai/doc/kg.html#rotatee>`__.
 
 Link Prediction Learning in GraphStorm
 =========================================
