@@ -1,5 +1,11 @@
 .. _link_prediction_usage:
 
+The relation\_emb values are initialized from a uniform distribution.
+
+    .. math::
+        score = gamma - \|head\_emb \circ relation\_emb - tail\_emb\|^2
+
+
 Link Prediction Learning in GraphStorm
 =========================================
 Link prediction is widely used in the industry as a pre-training method to produce high-quality entity representations. However, performing link
