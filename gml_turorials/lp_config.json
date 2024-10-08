@@ -1,0 +1,154 @@
+{
+    "nodes": [
+        {
+            "node_type": "author",
+            "format": {
+                "name": "parquet"
+            },
+            "files": [
+                "/tmp/acm_raw/nodes/author.parquet"
+            ],
+            "node_id_col": "node_id",
+            "features": [
+                {
+                    "feature_col": "feat",
+                    "feature_name": "feat"
+                }
+            ]
+        },
+        {
+            "node_type": "paper",
+            "format": {
+                "name": "parquet"
+            },
+            "files": [
+                "/tmp/acm_raw/nodes/paper.parquet"
+            ],
+            "node_id_col": "node_id",
+            "features": [
+                {
+                    "feature_col": "feat",
+                    "feature_name": "feat"
+                }
+            ]
+        },
+        {
+            "node_type": "subject",
+            "format": {
+                "name": "parquet"
+            },
+            "files": [
+                "/tmp/acm_raw/nodes/subject.parquet"
+            ],
+            "node_id_col": "node_id",
+            "features": [
+                {
+                    "feature_col": "feat",
+                    "feature_name": "feat"
+                }
+            ]
+        }
+    ],
+    "edges": [
+        {
+            "relation": [
+                "author",
+                "writing",
+                "paper"
+            ],
+            "format": {
+                "name": "parquet"
+            },
+            "files": [
+                "/tmp/acm_raw/edges/author_writing_paper.parquet"
+            ],
+            "source_id_col": "source_id",
+            "dest_id_col": "dest_id"
+        },
+        {
+            "relation": [
+                "paper",
+                "cited",
+                "paper"
+            ],
+            "format": {
+                "name": "parquet"
+            },
+            "files": [
+                "/tmp/acm_raw/edges/paper_cited_paper.parquet"
+            ],
+            "source_id_col": "source_id",
+            "dest_id_col": "dest_id"
+        },
+        {
+            "relation": [
+                "paper",
+                "citing",
+                "paper"
+            ],
+            "format": {
+                "name": "parquet"
+            },
+            "files": [
+                "/tmp/acm_raw/edges/paper_citing_paper.parquet"
+            ],
+            "source_id_col": "source_id",
+            "dest_id_col": "dest_id",
+            "labels": [
+                {
+                    "task_type": "link_prediction",
+                    "split_pct": [
+                        0.8,
+                        0.1,
+                        0.1
+                    ]
+                }
+            ]
+        },
+        {
+            "relation": [
+                "paper",
+                "is-about",
+                "subject"
+            ],
+            "format": {
+                "name": "parquet"
+            },
+            "files": [
+                "/tmp/acm_raw/edges/paper_is-about_subject.parquet"
+            ],
+            "source_id_col": "source_id",
+            "dest_id_col": "dest_id"
+        },
+        {
+            "relation": [
+                "paper",
+                "written-by",
+                "author"
+            ],
+            "format": {
+                "name": "parquet"
+            },
+            "files": [
+                "/tmp/acm_raw/edges/paper_written-by_author.parquet"
+            ],
+            "source_id_col": "source_id",
+            "dest_id_col": "dest_id"
+        },
+        {
+            "relation": [
+                "subject",
+                "has",
+                "paper"
+            ],
+            "format": {
+                "name": "parquet"
+            },
+            "files": [
+                "/tmp/acm_raw/edges/subject_has_paper.parquet"
+            ],
+            "source_id_col": "source_id",
+            "dest_id_col": "dest_id"
+        }
+    ]
+}
