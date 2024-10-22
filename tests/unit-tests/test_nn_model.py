@@ -98,12 +98,15 @@ def create_dummy_no_indegree_test_graph(dim=16):
 
     return block, inputs, list(num_src_nodes.keys()), list(edges.keys())
 
+
+def create_dummy_edge_feature_test_graph():
+    pass
+
     
 @pytest.mark.parametrize("input_dim", [32])
 @pytest.mark.parametrize("output_dim", [32])
 def test_rgcn_with_zero_input(input_dim, output_dim):
     block, inputs, _, etypes = create_dummy_zero_input_test_graph(input_dim)
-
     layer = RelGraphConvLayer(
         input_dim, output_dim, etypes,
         2, activation=th.nn.ReLU(), self_loop=True,
@@ -224,6 +227,12 @@ def test_hgt_with_no_indegree_dstnodes(input_dim, output_dim):
     assert outputs['n2'].shape[0] == 64
     assert outputs['n2'].shape[1] == output_dim
 
+@pytest.mark.parametrize("input_dim", [32])
+@pytest.mark.parametrize("output_dim", [32,64])
+def test_rgcn_with_edge_features(input_dim, output_dim):
+    pass
+
+
 if __name__ == '__main__':
     test_rgcn_with_zero_input(32, 64)
     test_rgat_with_zero_input(32, 64)
@@ -232,3 +241,5 @@ if __name__ == '__main__':
     test_rgcn_with_no_indegree_dstnodes(32, 64)
     test_rgat_with_no_indegree_dstnodes(32, 64)
     test_hgt_with_no_indegree_dstnodes(32, 64)
+
+    test_rgcn_with_edge_features(32, 64)
