@@ -21,12 +21,12 @@ import torch as th
 from torch import nn
 import torch.nn.functional as F
 import dgl.nn as dglnn
-
+import dgl.function as fn
 from dgl.nn.pytorch.hetero import get_aggregate_fn
 from .ngnn_mlp import NGNNMLP
 from .gnn_encoder_base import (GraphConvEncoder,
                                GSgnnGNNEncoderInterface)
-
+from ..config import BUILTIN_EDGE_FEAT_MP_OPS
 
 class RelGraphConvLayer(nn.Module):
     r"""Relational graph convolution layer from `Modeling Relational Data
@@ -105,6 +105,8 @@ class RelGraphConvLayer(nn.Module):
                  rel_names,
                  num_bases,
                  *,
+                 edge_feat_name=None,
+                 edge_feat_mp_op='concat',
                  weight=True,
                  bias=True,
                  activation=None,
@@ -122,10 +124,17 @@ class RelGraphConvLayer(nn.Module):
         self.activation = activation
         self.self_loop = self_loop
 
-        self.conv = HeteroGraphConv({
-                rel : dglnn.GraphConv(in_feat, out_feat, norm='right', weight=False, bias=False)
-                for rel in rel_names
-            })
+        # check which GraphConv to use depending on if using edge feature
+        rel_convs = {}
+        for rel in rel_names:
+            if rel in edge_feat_name:
+                rel_convs[rel] = GraphConvwithEdgeFeat(in_feat, out_feat, 
+                                                       edge_feat_mp_op=edge_feat_mp_op,
+                                                       bias=False)
+            else:
+                rel_convs[rel] = dglnn.GraphConv(in_feat, out_feat, norm='right',
+                                                 weight=False, bias=False)
+        self.conv = HeteroGraphConv(rel_convs)
 
         self.use_weight = weight
         self.use_basis = num_bases < len(self.rel_names) and weight
@@ -504,3 +513,71 @@ class HeteroGraphConv(nn.Module):
             if len(alist) != 0:
                 rsts[nty] = self.agg_fn(alist, nty)
         return rsts
+
+
+class GraphConvwithEdgeFeat(nn.Module):
+    def __init__(
+        self,
+        in_feat,
+        out_feat,
+        edge_feat_mp_op='concat',
+        bias=True):
+        super(GraphConvwithEdgeFeat, self).__init__()
+        self.in_feat = in_feat
+        self.out_feat = out_feat
+        assert edge_feat_mp_op in BUILTIN_EDGE_FEAT_MP_OPS, 'GraphStorm only support edge message' + \
+            f'passing operation in {BUILTIN_EDGE_FEAT_MP_OPS}, bug got {edge_feat_mp_op}.'
+        self.edge_feat_mp_op = edge_feat_mp_op
+        self.bias = bias
+
+        # weights for message passing using edge embeddings.
+        if edge_feat_mp_op in ['concat']:
+            self.weights = nn.Parameter(th.Tensor(in_feat * 2, out_feat))
+        else:
+            self.weights = nn.Parameter(th.Tensor(in_feat, out_feat))
+
+        # bias
+        if bias:
+            self.h_bias = nn.Parameter(th.Tensor(out_feat))
+            nn.init.zeros_(self.h_bias)
+
+    def forward(self, rel_graph, inputs):
+        node_inputs, edge_inputs = inputs
+        src_inputs, _ = node_inputs
+
+        rel_graph.srcdata['n_h'] = src_inputs
+        rel_graph.edata['e_h'] = edge_inputs
+        if self.edge_feat_mp_op == 'concat':
+            rel_graph.apply_edges(lambda edges: {'m': th.concat([edges.src['n_h'], \
+                                                 edges.data['e_h']], dim=1) @ self.weights})
+        elif self.edge_feat_mp_op == 'add':
+            rel_graph.apply_edges(lambda edges: {'m': (edges.src['n_h'] + \
+                                                 edges.data['e_h']) @ self.weights})
+        elif self.edge_feat_mp_op == 'sub':
+            rel_graph.apply_edges(lambda edges: {'m': (edges.src['n_h'] - \
+                                                 edges.data['e_h']) @ self.weights})
+        elif self.edge_feat_mp_op == 'mul':
+            rel_graph.apply_edges(lambda edges: {'m': (edges.src['n_h'] * \
+                                                 edges.data['e_h']) @ self.weights})
+        elif self.edge_feat_mp_op == 'div':
+            rel_graph.apply_edges(lambda edges: {'m': (edges.src['n_h'] / \
+                                                 edges.data['e_h']) @ self.weights})
+        else:
+            raise ValueError(f'Unknown edge message passing operation: {self.edge_feat_mp_op}.' + \
+                             f'It should be one of {BUILTIN_EDGE_FEAT_MP_OPS}.')
+        # assign in_degree norm to dst nodes as right norm
+        in_degs = rel_graph.in_degrees()
+        in_norms = th.pow(in_degs, 0.5)
+        rel_graph.dstdata['norm'] = in_norms
+
+        # aggregate on dest nodes
+        rel_graph.apply_edge(fn.e_mul_v('m', 'norm', 'n_m'), fn.sum('n_m', 'h'))
+
+        # extract outputs
+        h = rel_graph.dstdata['h']
+
+        # add bias
+        if self.bias:
+            h = h + self.h_bias
+
+        return h
