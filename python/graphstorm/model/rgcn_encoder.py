@@ -400,7 +400,6 @@ class RelationalGCNEncoder(GraphConvEncoder, GSgnnGNNEncoderInterface):
 class HeteroGraphConv(nn.Module):
     r"""A generic module for computing convolution on heterogeneous graphs.
 
-
     Parameters
     ----------
     mods: dict[str, nn.Module]
