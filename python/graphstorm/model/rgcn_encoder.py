@@ -50,11 +50,10 @@ class RelGraphConvLayer(nn.Module):
     (i.e.,  :math:`c_{ji} = \sqrt{|\mathcal{N}(j)|}\sqrt{|\mathcal{N}(i)|}`),
     and :math:`\sigma` is an activation function.
 
-    Note:
-    ******
-    * The implementation of ``RelGraphConvLayer`` selects `right` as the norm, which divides
-      the aggregated messages by each node's in-degrees, equivalent to averaging the received
-      messages.
+    .. note::
+        The implementation of ``RelGraphConvLayer`` selects `right` as the norm, which divides
+        the aggregated messages by each node's in-degrees, equivalent to averaging the received
+        messages.
 
     Examples:
     ----------
@@ -73,7 +72,7 @@ class RelGraphConvLayer(nn.Module):
         h = layer(g, input_feature)
 
     .. versionchanged:: 0.4.0
-        Add two new arguments `edge_feat_name` and `edge_feat_mp_op` in v0.4.0 to
+        Add two new arguments ``edge_feat_name`` and ``edge_feat_mp_op`` in v0.4.0 to
         support edge features in RGCN conv layer.
 
     Parameters
@@ -131,6 +130,7 @@ class RelGraphConvLayer(nn.Module):
         self.out_feat = out_feat
         self.rel_names = rel_names
         self.num_bases = num_bases
+        self.edge_feat_name=edge_feat_name
         self.bias = bias
         self.activation = activation
         self.self_loop = self_loop
@@ -222,13 +222,13 @@ class RelGraphConvLayer(nn.Module):
             edge features for each edge type in the format of {etype: tensor}. Default is an
             ampty dict, meaning no edge features.
 
-        .. versionchanged:: 0.4.0
-            Change inputs into node inputs and edge input in v0.4.0 to support edge featuer
-            in RGCN layer.
-
         Returns
         -------
         dict of Tensor: New node embeddings for each node type in the format of {ntype: tensor}.
+
+        .. versionchanged:: 0.4.0
+            Change inputs into node inputs and edge inputs in v0.4.0 to support edge featuer
+            in RGCN layer.
         """
         g = g.local_var()
         if self.use_weight:
@@ -262,7 +262,10 @@ class RelGraphConvLayer(nn.Module):
         else:
             inputs_src = inputs_dst = n_h
 
-        hs = self.conv(g, (inputs_src, inputs_dst, e_h), mod_kwargs=wdict)
+        if self.edge_feat_name:
+            hs = self.conv(g, (inputs_src, inputs_dst, e_h), mod_kwargs=wdict)
+        else:
+            hs = self.conv(g, (inputs_src, inputs_dst, {}), mod_kwargs=wdict)
 
         def _apply(ntype, h):
             if self.self_loop:
@@ -299,7 +302,7 @@ class RelationalGCNEncoder(GraphConvEncoder, GSgnnGNNEncoderInterface):
     within Graphstorm.
 
     .. versionchanged:: 0.4.0
-        Add two new arguments `edge_feat_name` and `edge_feat_mp_op` in v0.4.0 to
+        Add two new arguments ``edge_feat_name`` and ``edge_feat_mp_op`` in v0.4.0 to
         support edge features in RGCN encoder.
 
     Parameters
@@ -365,11 +368,11 @@ class RelationalGCNEncoder(GraphConvEncoder, GSgnnGNNEncoderInterface):
 
         h = do_full_graph_inference(model, np_data)
 
-    .. note::
+    .. warning::
 
         To use edge feature in message passing computation, please ensure the node and edge
-        features have the same dimension. Users can use GraphStorm's `GSNodeEncoderInputLayer`,
-        and `GSEdgeEncoderInputLayer` to transfer node and edge feature dimensions.
+        features have the same dimension. Users can use GraphStorm's ``GSNodeEncoderInputLayer``,
+        and ``GSEdgeEncoderInputLayer`` to transfer node and edge feature dimensions.
 
     """
     def __init__(self,
@@ -588,7 +591,18 @@ class GraphConvwithEdgeFeat(nn.Module):
     .. versionadded:: 0.4.0
     Add `GraphConvwithEdgeFeat` class in v0.4.0 to support edge feature in message
     passing computation.
-    
+
+    Parameters
+    ----------
+    in_feat: int
+        Input feature size.
+    out_feat: int
+        Output feature size.
+    edge_feat_mp_op: str
+        The opration method to combine source node embeddings with edge embeddings in message
+        passing. Options include `concat`, `add`, `sub`, `mul`, and `div`.
+    bias: bool
+        Whether to add bias. Default: True.
     """
     def __init__(
         self,
@@ -615,9 +629,29 @@ class GraphConvwithEdgeFeat(nn.Module):
             self.h_bias = nn.Parameter(th.Tensor(out_feat))
             nn.init.zeros_(self.h_bias)
 
-    def forward(self, rel_graph, inputs):
-        node_inputs, edge_inputs = inputs
-        src_inputs, _ = node_inputs
+    def forward(self, rel_graph, inputs, weight=None, edge_weight=None):
+        """ Graph conv forward computation with edge feature.
+
+        Parameters
+        ----------
+        rel_graph: DGLGraph
+            Input DGL heterogenous graph with one edge type only.
+        inputs: tuple of dict of Tensor
+            Node features for each node type in the format of {ntype: tensor}.
+        weight: dict of Tensor 
+            optional external node weight tensor. Not implemented. Reserved for future use.
+        edge_weight: Tensor 
+            optional external edge weight tensor. Not implemented. Reserved for future use.
+
+        Returns
+        -------
+        h: Tensor
+            New node embeddings for destination node type.
+        """
+        assert len(inputs) == 3, 'For using edge features in message passing, you need to ' + \
+                                 'provide 3 inputs in a tuple, the format is (src_inputs, ' + \
+                                 f'dst_inputs, edge_inputs). but got {len(inputs)} inputs.'
+        src_inputs, _, edge_inputs = inputs
 
         rel_graph.srcdata['n_h'] = src_inputs
         rel_graph.edata['e_h'] = edge_inputs
@@ -641,11 +675,11 @@ class GraphConvwithEdgeFeat(nn.Module):
                              f'It should be one of {BUILTIN_EDGE_FEAT_MP_OPS}.')
         # assign in_degree norm to dst nodes as right norm
         in_degs = rel_graph.in_degrees()
-        in_norms = th.pow(in_degs, 0.5)
+        in_norms = th.pow(in_degs, -0.5)
         rel_graph.dstdata['norm'] = in_norms
 
         # aggregate on dest nodes
-        rel_graph.apply_edge(fn.e_mul_v('m', 'norm', 'n_m'), fn.sum('n_m', 'h'))
+        rel_graph.update_all(fn.e_mul_v('m', 'norm', 'n_m'), fn.sum('n_m', 'h'))
 
         # extract outputs
         h = rel_graph.dstdata['h']
