@@ -525,3 +525,4 @@ if __name__ == '__main__':
 
     test_rgcn_with_edge_features(32, 64, 'cpu')
     test_rgcn_with_edge_features(64, 64, 'cpu')
+    test_rgcn_with_edge_features(32, 64, 'cuda:0')

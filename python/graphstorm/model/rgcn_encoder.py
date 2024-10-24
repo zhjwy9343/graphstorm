@@ -396,15 +396,15 @@ class RelationalGCNEncoder(GraphConvEncoder, GSgnnGNNEncoderInterface):
         # h2h
         for _ in range(num_hidden_layers):
             self.layers.append(RelGraphConvLayer(
-                h_dim, h_dim, g.canonical_etypes,
-                self.num_bases, edge_feat_name, edge_feat_mp_op,
+                h_dim, h_dim, g.canonical_etypes, self.num_bases,
+                edge_feat_name=edge_feat_name, edge_feat_mp_op=edge_feat_mp_op,
                 activation=F.relu, self_loop=use_self_loop,
                 dropout=dropout, num_ffn_layers_in_gnn=num_ffn_layers_in_gnn,
                 ffn_activation=F.relu, norm=norm))
         # h2o
         self.layers.append(RelGraphConvLayer(
-            h_dim, out_dim, g.canonical_etypes,
-            self.num_bases, edge_feat_name, edge_feat_mp_op,
+            h_dim, out_dim, g.canonical_etypes, self.num_bases,
+                edge_feat_name=edge_feat_name, edge_feat_mp_op=edge_feat_mp_op,
             activation=F.relu if last_layer_act else None,
             self_loop=use_self_loop, norm=norm if last_layer_act else None))
 
@@ -442,9 +442,9 @@ class RelationalGCNEncoder(GraphConvEncoder, GSgnnGNNEncoderInterface):
             New node embeddings for each node type in the format of {ntype: tensor}.
         """
         if len(e_hs) > 0:
-            assert len(e_hs) >= len(blocks), 'The length of edge features should be equal or ' + \
-                f'greater than the number of blocks, but got {len(e_hs)} edge features and ' + \
-                f'{len(blocks)} blocks.'
+            assert len(e_hs) >= len(blocks), 'The layer of edge features should be equal or ' + \
+                f'greater than the number of blocks, but got {len(e_hs)} layer of edge ' + \
+                f'features and {len(blocks)} blocks.'
 
             for layer, block, e_h in zip(self.layers, blocks, e_hs):
                 n_h = layer(block, n_h, e_h)
