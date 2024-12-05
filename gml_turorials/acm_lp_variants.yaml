@@ -2,7 +2,7 @@
 version: 1.0
 gsf:
     basic:
-        model_encoder_type: rgcn
+        model_encoder_type: rgat
         backend: gloo
         verbose: false
     gnn:
@@ -27,8 +27,8 @@ gsf:
         alpha_l2norm: 0.
         num_ffn_layers_in_input: 2
         num_ffn_layers_in_gnn: 1
-    rgcn:
-        num_bases: -1
+    rgat:
+        num_heads: -1
         use_self_loop: true
         sparse_optimizer_lr: 1e-2
         use_node_embeddings: false
