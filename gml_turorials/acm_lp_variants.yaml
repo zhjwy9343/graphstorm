@@ -28,11 +28,11 @@ gsf:
         num_ffn_layers_in_input: 2
         num_ffn_layers_in_gnn: 1
     rgat:
-        num_heads: -1
+        num_heads: 8
         use_self_loop: true
         sparse_optimizer_lr: 1e-2
         use_node_embeddings: false
-        lp_decoder_type: DistMult
+        lp_decoder_type: dot_product
     link_prediction:
         num_negative_edges: 10
         num_negative_edges_eval: 100
