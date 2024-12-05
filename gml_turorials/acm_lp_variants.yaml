@@ -32,7 +32,7 @@ gsf:
         use_self_loop: true
         sparse_optimizer_lr: 1e-2
         use_node_embeddings: false
-        lp_decoder_type: dot_product
+        lp_decoder_type: DistMult
     link_prediction:
         num_negative_edges: 10
         num_negative_edges_eval: 100
