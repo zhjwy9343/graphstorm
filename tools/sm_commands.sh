@@ -18,14 +18,16 @@ docker run -it -p 8080:8080 \
   -e SAGEMAKER_PROGRAM=infer_entry_point.py \
   911734752298.dkr.ecr.us-east-1.amazonaws.com/graphstorm-james:sagemaker-cpu-infer /bin/bash
 
+
 docker run -it -p 8080:8080 \
   911734752298.dkr.ecr.us-east-1.amazonaws.com/graphstorm-james:sagemaker-cpu-infer /bin/bash
+
 
 docker run -it -p 8080:8080 \
   -v code:/opt/ml/model \
   911734752298.dkr.ecr.us-east-1.amazonaws.com/graphstorm-james:sagemaker-cpu-infer /bin/bash
 
-docker container exec -it  /bin/bash
+docker container exec -it <image_name/id> /bin/bash
 
 
 
