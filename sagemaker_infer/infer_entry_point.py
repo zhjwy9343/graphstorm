@@ -41,7 +41,7 @@ def model_fn(model_dir):
     # TODO: should get the graph name from either user's input argument or by autmatically
     #       extracted from JSON file.
     dummy_g = dgl.distributed.DistGraph('acm', \
-                                        part_config=os.path.join(model_dir, '/acm_gs_1p/acm.json'))
+                                        part_config=os.path.join(model_dir, 'acm_gs_1p/acm.json'))
     # rebuild the model
     # TODO: should like gsf.py to check what kind of models we need to create
     model = gs.create_builtin_node_gnn_model(dummy_g, config, train_task=False)
