@@ -97,6 +97,7 @@ def predict_fn(input_data, model):
 
 
 if __name__ == '__main__':
+    pass
     # method for local testing
 
     # --- load saved model ---
