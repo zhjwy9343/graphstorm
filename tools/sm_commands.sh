@@ -24,7 +24,7 @@ docker run -it -p 8080:8080 \
 
 
 docker run -it -p 8080:8080 \
-  -v code:/opt/ml/model \
+  -v ./code:/opt/ml/model \
   911734752298.dkr.ecr.us-east-1.amazonaws.com/graphstorm-james:sagemaker-cpu-infer /bin/bash
 
 docker container exec -it <image_name/id> /bin/bash
