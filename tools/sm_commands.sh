@@ -27,7 +27,16 @@ docker run -it -p 8080:8080 \
   -v ./code:/opt/ml/model \
   911734752298.dkr.ecr.us-east-1.amazonaws.com/graphstorm-james:sagemaker-cpu-infer /bin/bash
 
+export SAGEMAKER_SUBMIT_DIRECTORY=/opt/ml/model/code
+export SAGEMAKER_PROGRAM=infer_entry_point.py
+
+python3 /usr/local/bin/dockerd-entrypoint.py serve
+
 docker container exec -it <image_name/id> /bin/bash
 
+payload=$1
+content=${2:-application/json}
 
+curl --data-binary "@payload.json" -H "Content-Type: application/json" -v http://localhost:8080/invocations
 
+python client_boto_demo.py --endpoint_name gsf-deploy-realtime-james-test102 --test_round 10
