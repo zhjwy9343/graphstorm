@@ -6,24 +6,69 @@ import dgl
 from datetime import datetime as dt
 
 import torch as th
-import torch.nn as nn
-import torch.nn.functional as F
-
-import dgl.function as fn
 import numpy as np
+import pandas as pd
 
 import graphstorm as gs
 from graphstorm.config import GSConfig
 from argparse import Namespace
 
-# INPUT_SIZE = 390
-# HIDDEN_SIZE = int(os.getenv('HIDDEN_SIZE', '16'))
-# N_LAYERS = 2
-# OUT_SIZE = 2
-# EMBEDDING_SIZE = 390
-BASE_PATH = '/opt/ml/model/code/'
-# TARGET_FEAT_MEAN = None
-# TARGET_FEAT_STD = None
+
+# TODO: Need to check the cause of randomness in the inference pipeline
+th.manual_seed(47)
+np.random.seed(47)
+
+
+def prepare_batch_input(g, input_nodes, dev='cpu', feat_field='feat'):
+    """ Prepare minibatch input features
+
+    Note: The output is stored in dev.
+
+    Parameters
+    ----------
+    g: DGLGraph
+        The graph.
+    input_nodes: dict of tensor
+        Input nodes.
+    dev: th.device
+        Device to put output in.
+    feat_field: str or dict of list of str
+        Fields to extract features
+
+    Return:
+    -------
+    Dict of tensors.
+        If a node type has features, it will get node features.
+    """
+    feat = {}
+    for ntype, nid in input_nodes.items():
+        feat_name = None if feat_field is None else \
+            [feat_field] if isinstance(feat_field, str) \
+            else feat_field[ntype] if ntype in feat_field else None
+
+        if feat_name is not None:
+            # concatenate multiple features together
+            feats = []
+            for fname in feat_name:
+                assert fname in g.nodes[ntype].data, \
+                    f"{fname} does not exist as a node feature of {ntype}"
+                data = g.nodes[ntype].data[fname]
+                data = data[nid].to(dev)
+                feats.append(data)
+            assert len(feats) > 0, \
+                "No feature exists in the graph. " \
+                f"Expecting the graph have following node features {feat_name}."
+
+            if len(feats[0].shape) == 1:
+                # The feature is 1D. It will be features for label
+                assert len(feats) == 1, \
+                    "For 1D features, we assume they are label features." \
+                    f"Please access them 1 by 1, but get {feat_name}"
+                feat[ntype] = feats[0]
+            else:
+                # The feature is 2D
+                feat[ntype] = th.cat(feats, dim=1)
+    return feat
 
 
 # SageMaker inference functions
@@ -48,7 +93,8 @@ def model_fn(model_dir):
     model.restore_model(config.restore_model_path)
 
     e_t = dt.now()
-    print(f'--model_fn: used {(e_t - s_t).microseconds} ms ...')
+    diff_t = int((e_t - s_t).microseconds / 1000)
+    print(f'--model_fn: used {diff_t} ms ...')
 
     print(model)
 
@@ -69,12 +115,123 @@ def input_fn(request_body, request_content_type='application/json'):
 
     s_t = dt.now()
 
-    #TODO: Data Extraction and Transformation
+    version = input_data.get('version', None)
+    gml_task = input_data.get('gml_task', None)
+    targets = input_data.get('targets', None)
+    graph = input_data.get('graph', None)
+
+    print(version)
+    print(gml_task)
+    task_type = 'node'
+    if 'edge' in gml_task or 'link' in gml_task:
+        task_type = 'edge'
+        target_type = targets[0]['edge_type']
+    else:
+        target_type = targets[0]['node_type']
+
+    print(f'The type of {task_type} is {target_type}')
+
+    # ==== procssing input graph json to DGL graph with node/edge features ====
+
+    # processing node data
+    nodes = graph.get('nodes', None)
+    assert nodes is not None, 'Some error code and message here'
+
+    type_node_dfs = {}
+    for type_nodes in nodes:
+        # processing one type of nodes, generate new interger node id and save
+        # the mapping file
+        node_df = pd.DataFrame()
+
+        # generating int node ids
+        str_org_node_ids = type_nodes['node_ids']
+        int_node_ids = np.arange(len(str_org_node_ids))
+
+        node_df['node_id'] = str_org_node_ids
+        node_df['nid'] = int_node_ids
+
+        for key, vals in type_nodes['features'].items():
+            if key in ['node_type', 'node_ids']:
+                continue
+            else:
+                node_df[key] = vals
+
+        type_node_dfs[type_nodes['node_type']] = node_df
+
+    # processing edge data
+    edges = graph.get('edges', None)
+    assert edges is not None,  'Some error code and message here'
+
+    type_edge_dfs = {}
+    edge_feat_dfs = {}
+    for type_edges in edges:
+        src_ntype, etype, dst_ntype = type_edges['edge_type']
+
+        # process source and destination node ids to build DGL input edge lists
+        edge_df = pd.DataFrame()
+        str_org_src_ids = type_edges['src_node_ids']
+        str_org_dst_ids = type_edges['dest_node_ids']
+        edge_df['src_node_id'] = str_org_src_ids
+        edge_df['dst_node_id'] = str_org_dst_ids
+
+        # mapping orginal node ids to int ones
+        edge_df = pd.merge(edge_df, type_node_dfs[src_ntype][['node_id','nid']],
+                           left_on='src_node_id', right_on='node_id')
+        edge_df.rename(columns={'nid': 'src_nid'}, inplace=True)
+        edge_df = pd.merge(edge_df, type_node_dfs[dst_ntype][['node_id','nid']],
+                           left_on='dst_node_id', right_on='node_id')
+        edge_df.rename(columns={'nid': 'dst_nid'}, inplace=True)
+
+        # edge_df = edge_df[['src_nid', 'dst_nid']]
+        type_edge_dfs[(src_ntype, etype, dst_ntype)] = (th.from_numpy(edge_df['src_nid'].to_numpy()),
+                                                        th.from_numpy(edge_df['dst_nid'].to_numpy()))
+
+        # process edge features if have
+        feat_df = pd.DataFrame()
+        for key, vals in type_edges['features'].items():
+            if key in ['edge_type', 'src_node_ids', 'dest_node_ids']:
+                continue
+            else:
+                feat_df[key] = vals
+            if feat_df.shape[0] > 0:
+                edge_feat_dfs[(src_ntype, etype, dst_ntype)] = feat_df
+
+    # Build DGL graph and assign features to nodes/edges if have
+    dgl_graph = dgl.heterograph(type_edge_dfs)
+
+    for ntype, node_df in type_node_dfs.items():
+        nfeat_cols = [col for col in node_df.columns if col not in ['node_id', 'nid']]
+        for nfeat_col in nfeat_cols:
+            np_vals = np.stack(node_df[nfeat_col].values)
+            dgl_graph.nodes[ntype].data[nfeat_col] = th.from_numpy(np_vals)
+
+    for etype, feat_df in edge_feat_dfs.items():
+        for efeat_col in feat_df.columns:
+            np_vals = np.stack(feat_df[efeat_col].values)
+            dgl_graph.edges[etype].data[efeat_col] = th.from_numpy(np_vals)
+
+    # ==== get the target node ids and convert to new node ids ====
+    # so far only handle the first target id set.
+    target_dict = {}
+    if task_type == 'node':
+        target_ntype = targets[0]['node_type']
+        target_nids = targets[0]['node_ids']
+        node_df = type_node_dfs[target_ntype]
+        target_df = node_df[node_df['node_id'].isin(target_nids)]
+        target_df = target_df[['node_id', 'nid']]
+        target_dict['target_ntype'] = target_ntype
+        target_dict['target_df'] = target_df
+    else:
+        pass
+
+    # print(dgl_graph.ndata)
+    # print(dgl_graph.edata)
 
     e_t = dt.now()
-    print(f'--input_fn: used {(e_t - s_t).microseconds} ms ...')
+    diff_t = int((e_t - s_t).microseconds / 1000)
+    print(f'--input_fn: used {diff_t} ms ...')
 
-    return input_data
+    return dgl_graph, target_dict
 
 
 def predict_fn(input_data, model):
@@ -84,56 +241,46 @@ def predict_fn(input_data, model):
 
     s_t = dt.now()
 
-    graph, new_n_feats, new_pred_target_id = input_data
+    dgl_graph, target_dict = input_data
 
-    with th.no_grad():
-        logits = model(graph, new_n_feats)
-        res = logits[new_pred_target_id].cpu().detach().numpy()
+    # sample input graph to build blocks
+    ntype = target_dict['target_ntype']
+    target_df = target_dict['target_df']
+    nids = th.from_numpy(target_df['nid'].to_numpy())
+    print(nids)
+    target_nid = {ntype: nids}
+
+    sampler = dgl.dataloading.MultiLayerFullNeighborSampler(2)
+    size = nids.shape[0]
+    dataloader = dgl.dataloading.DataLoader(dgl_graph, target_nid, sampler,
+                                            batch_size=size, shuffle=False,
+                                            drop_last=False)
+    all_nodes = []
+    all_blocks = []
+    for input_nodes, _, blocks in dataloader:
+        all_nodes = input_nodes
+        all_blocks = blocks
+
+    nfeat_fields = {'author': ['feat'],
+                    'paper': ['feat'],
+                    'subject': ['feat']}
+    n_h = prepare_batch_input(dgl_graph, all_nodes, feat_field=nfeat_fields)
+    e_hs = []
+    model.eval()
+    logits, _ = model.predict(all_blocks, n_h, e_hs, all_nodes,
+                              return_proba=True)
+    predictions = logits[ntype][nids].cpu().detach().numpy()
+
+    res = {'target_ntype': ntype,
+           'target_nid_raw': target_df['node_id'].to_numpy().tolist(),
+           'target_predictions': predictions.tolist()}
 
     e_t = dt.now()
-    print(f'--predict_fn: used {(e_t - s_t).microseconds} ms ...')
+    diff_t = int((e_t - s_t).microseconds / 1000)
+    print(f'--predict_fn: used {diff_t} ms ...')
 
-    return res[1]
+    return res
 
 
 if __name__ == '__main__':
     pass
-    # method for local testing
-
-    # --- load saved model ---
-    # s_t = dt.now()
-    #
-    # model = model_fn('../')
-    #
-    # e_t = dt.now()
-    # print('--Load Model: {}'.format((e_t - s_t).microseconds))
-
-    # --- load subgraph data ---
-    # s_t = dt.now()
-
-    # subgraph_file = 'subgraph_100_101.pkl'
-    # with open('../clients_python/subgraph_100_101.pkl', 'rb') as f:
-    #     subgraph_dict = pickle.load(f)
-
-    # e_t = dt.now()
-    # print('--Load Graph Data: {}'.format((e_t - s_t).microseconds))
-
-    # --- build a new subgraph ---
-    # s_t = dt.now()
-
-    # g, n_feats, new_pred_target_id = recreate_grpha_data(subgraph_dict, None, 100)
-
-
-    # e_t = dt.now()
-    # print('--Convert Graph: {}'.format((e_t - s_t).microseconds))
-
-    # --- use saved model to run prediction ---
-    # print('------------------ Predict Logits -------------------')
-    # s_t = dt.now()
-    #
-    # logits = model(g, n_feats)
-    #
-    # e_t = dt.now()
-    # print('--Convert Graph: {}'.format((e_t - s_t).microseconds))
-    #
-    # print(logits[new_pred_target_id])

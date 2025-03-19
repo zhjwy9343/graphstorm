@@ -64,6 +64,7 @@ def add_str_prefix(ntype, node_ids, num_prefix=1):
     else:
         return np.array([f'{ntype[:num_prefix]}{i}' for i in node_ids])
 
+
 def convert_to_lists(values):
     """ Conver values to lists for JSON serializers.
     
@@ -76,6 +77,7 @@ def convert_to_lists(values):
         values = values.tolist()
     
     return values
+
 
 def create_acm_raw_data(graph,
                         text_feat=None,
@@ -484,6 +486,8 @@ def convert_graph_to_json(graph, target_ids, target_labels=None):
     requests. Detailed JSON specification can be found in GraphStorm real-time inference user
     guide.
     TODO(james): provide the document link here.
+    
+    ** This JSON specification sets one node or edge in one object. **
     """
     graph_json = {}
     graph_json['version'] = 'gs-realtime-v0.1'
@@ -559,7 +563,6 @@ def convert_graph_to_json(graph, target_ids, target_labels=None):
         if isinstance(key, str):
             # node type
             str_ids = add_str_prefix(key, ids)
-            print(str_ids)
             for str_id in str_ids:
                 node = {
                     'node_type': key,
@@ -579,6 +582,103 @@ def convert_graph_to_json(graph, target_ids, target_labels=None):
                     'dest_node_id': str_dst_id
                 }
                 targets.append(edge)
+        else:
+            continue
+    
+    # set target objects
+    assert len(targets) > 0, 'For inference, there must be some target nodes or edges, but got 0.'
+    graph_json['targets'] = targets
+
+    return graph_json
+
+
+def convert_graph_to_json_vec(graph, target_ids, target_labels=None):
+    """ convert a DGL graph into a JSON object following GraphStorm real-time API specifications
+    
+    This function provide a utility method to generate the JSON object for real-time inference
+    requests. Detailed JSON specification can be found in GraphStorm real-time inference user
+    guide.
+    TODO(james): provide the document link here.
+
+    ** This JSON specification sets one node or edge TYPE in one object with vectorization. **
+    """
+    graph_json = {}
+    graph_json['version'] = 'gs-realtime-v0.1'
+    graph_json['gml_task'] = 'node_classification'
+    graph_json['graph'] = {'nodes':[], 'edges':[]}
+    graph_json['targets'] = {}
+
+    # iterate each node type and convert nodes to a json object
+    type_nodes = []
+    for ntype in graph.ntypes:
+        type_node = {}
+        type_node['node_type'] = ntype
+        type_node['features'] = {}
+
+        for key, vals in graph.nodes[ntype].data.items():
+            if key == dgl.NID:
+                org_nids = graph.nodes[ntype].data[dgl.NID]
+                str_org_nids = add_str_prefix(ntype, org_nids)
+                type_node['node_ids'] = convert_to_lists(str_org_nids)
+            elif key == 'label':
+                continue
+            else:
+                type_node['features'][key] = convert_to_lists(vals)
+        type_nodes.append(type_node)
+
+    # add type_nodes to graph json object
+    graph_json['graph']['nodes'] = type_nodes
+    
+    # iterate each edge type and convert edges to a json object
+    type_edges = []
+    for src_ntype, etype, dst_ntype in graph.canonical_etypes:
+        type_edge = {}
+        type_edge['edge_type'] = (src_ntype, etype, dst_ntype)
+        type_edge['features'] = {}
+
+        # extract src node ids and dst node ids
+        src_nids, dst_nids, _ = graph.edges(form='all', etype=(src_ntype, etype, dst_ntype))
+        org_src_nids = graph.nodes[src_ntype].data[dgl.NID][src_nids]
+        org_dst_nids = graph.nodes[dst_ntype].data[dgl.NID][dst_nids]
+        str_org_src_nids = add_str_prefix(src_ntype, org_src_nids)
+        str_org_dst_nids = add_str_prefix(dst_ntype, org_dst_nids)
+        type_edge['src_node_ids'] = convert_to_lists(str_org_src_nids)
+        type_edge['dest_node_ids'] = convert_to_lists(str_org_dst_nids)
+
+        for key, vals in graph.edges[(src_ntype, etype, dst_ntype)].data.items():
+            if key in ['label', dgl.EID]:
+                continue
+            else:
+                type_edge['features'][key] = convert_to_lists(vals)
+
+        type_edges.append(type_edge)
+
+    # add type_edges to graph json object
+    graph_json['graph']['edges'] = type_edges
+
+    # process targets
+    targets = []
+    for key, ids in target_ids.items():
+        if isinstance(key, str):
+            # node type
+            str_ids = add_str_prefix(key, ids)
+            type_node = {
+                    'node_type': key,
+                    'node_ids': convert_to_lists(str_ids)
+                }
+            targets.append(type_node)
+        elif isinstance(key, tuple) and len(key) == 3:
+            # edge type
+            assert len(ids[0]) == 2, 'The edge ids should be a list of two-element tuples.'
+            src_ids, dst_ids = ids
+            str_src_ids = add_str_prefix(key[0], src_ids)
+            str_dst_ids = add_str_prefix(key[2], dst_ids)
+            type_edge = {
+                    'edge_type': key,
+                    'src_node_ids': convert_to_lists(str_src_ids),
+                    'dest_node_ids': convert_to_lists(str_dst_ids)
+                }
+            targets.append(type_edge)
         else:
             continue
     
@@ -635,8 +735,8 @@ if __name__ == '__main__':
                                     is_split=False,
                                     dataset_name=args.dataset_name)
         subgraph, target_nid, target_labels = create_acm_sub_graph(g, num_targets=2)
-        subgraph_json = convert_graph_to_json(subgraph, target_nid, target_labels)
-        
-        subgraph_json_path = os.path.join(args.output_path, args.dataset_name+'_subg.json')
+        subgraph_json = convert_graph_to_json_vec(subgraph, target_nid, target_labels)
+
+        subgraph_json_path = os.path.join(args.output_path, args.dataset_name+'_subg_vec.json')
         with open(subgraph_json_path, 'w') as f:
             json.dump(subgraph_json, f, indent=4)

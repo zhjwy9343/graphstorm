@@ -39,4 +39,6 @@ content=${2:-application/json}
 
 curl --data-binary "@payload.json" -H "Content-Type: application/json" -v http://localhost:8080/invocations
 
+curl --data-binary "@acm_subg_vec.json" -H "Content-Type: application/json" -v http://localhost:8080/invocations
+
 python client_boto_demo.py --endpoint_name gsf-deploy-realtime-james-test102 --test_round 10
