@@ -52,10 +52,9 @@ def prepare_batch_input(g, input_nodes, dev='cpu', feat_field='feat'):
 
     Note: The output is stored in the dev device.
 
-    .. versionchanged:: 0.5.0
-        When feat_field is a dict, its value(s) can be a list of str or a list
-        of FeatureGroup. The return value can be a dict of int or
-        FeatureGroupSize, respectively.
+    .. versionchanged:: 0.5.1
+        Extract a special node feature type, called ``embed``, if the given graph ``g`` has such
+        features on a node type in the input nodes.
 
     Parameters
     ----------
@@ -74,6 +73,7 @@ def prepare_batch_input(g, input_nodes, dev='cpu', feat_field='feat'):
         If a node type has features, it will get node features.
     """
     feat = {}
+    feat[EMBEDDING_KEY] = {}
     for ntype, nid in input_nodes.items():
         feat_name = None if feat_field is None else \
             [feat_field] if isinstance(feat_field, str) \
@@ -119,6 +119,15 @@ def prepare_batch_input(g, input_nodes, dev='cpu', feat_field='feat'):
                 else:
                     # The feature is 2D
                     feat[ntype] = th.cat(feats, dim=1)
+
+        # handle embeddings if there is a feature key name is `embed`
+        if EMBEDDING_KEY in g.nodes[ntype].data:
+            feat[EMBEDDING_KEY][ntype] = g.nodes[ntype].data[EMBEDDING_KEY]
+
+    # remove empty embeddings
+    if not feat[EMBEDDING_KEY]:
+        feat.pop(EMBEDDING_KEY)
+        
     return feat
 
 def prepare_batch_edge_input(g, input_edges,

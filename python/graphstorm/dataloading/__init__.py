@@ -58,6 +58,7 @@ from .dataloading import (DistillDataloaderGenerator,
 from .sampler import DistributedFileSampler
 
 from .metadata import (GSGraphMetadata,
+                       GSGraphFromMetadata,
                        GSDglGraphFromMetadata,
                        GSDglDistGraphFromMetadata,
                        config_json_sanity_check,

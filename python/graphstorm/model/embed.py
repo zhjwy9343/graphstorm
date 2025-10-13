@@ -237,8 +237,7 @@ class GSPureLearnableInputLayer(GSNodeInputLayer):
         that uses learnable embeddings for every node.
 
     .. versionadded:: 0.4.2
-        Add ``GSPureLearnableInputLayer`` in v0.4.2 to support
-        Knowledge graph embedding training.
+        Add ``GSPureLearnableInputLayer`` in v0.4.2 to support Knowledge graph embedding training.
 
     Parameters
     ----------
@@ -298,34 +297,44 @@ class GSPureLearnableInputLayer(GSNodeInputLayer):
             )
 
         for ntype in g.ntypes:
-            embed_name = "embed"
-
-            if self._use_wholegraph_sparse_emb:
-                if get_rank() == 0:
-                    logging.debug(
-                        "Use WholeGraph to host additional " \
-                        "sparse embeddings on node type %s",
-                        ntype,
-                    )
-                sparse_embed = WholeGraphDistTensor(
-                    (g.number_of_nodes(ntype), embed_size),
-                    th.float32,  # to consistent with distDGL's DistEmbedding dtype
-                    embed_name + "_" + ntype,
-                    use_wg_optimizer=True,  # no memory allocation before opt available
-                )
-            else:
-                if get_rank() == 0:
-                    logging.debug("Use additional sparse embeddings on node %s", ntype)
-                part_policy = g.get_node_partition_policy(ntype)
-                sparse_embed = DistEmbedding(
-                    g.number_of_nodes(ntype),
-                    embed_size,
-                    embed_name + "_" + ntype,
-                    init_emb,
-                    part_policy,
-                )
-
+            sparse_embed = self._init_node_embeddings(g, ntype, self.embed_size)
             self._sparse_embeds[ntype] = sparse_embed
+
+    def _init_node_embeddings(self, g, ntype, embed_size):
+        """ Initialize learnable node embeddings.
+
+        In v0.5.1, separate this functionality from the self.__init__() to increase flexibility.
+        For example, children classes can overwrite this method to provide other embedding
+        initialization methods.
+        """
+        embed_name = EMBEDDING_KEY
+
+        if self._use_wholegraph_sparse_emb:
+            if get_rank() == 0:
+                logging.debug(
+                    "Use WholeGraph to host additional " \
+                    "sparse embeddings on node type %s",
+                    ntype,
+                )
+            sparse_embed = WholeGraphDistTensor(
+                (g.number_of_nodes(ntype), embed_size),
+                th.float32,  # to consistent with distDGL's DistEmbedding dtype
+                embed_name + "_" + ntype,
+                use_wg_optimizer=True,  # no memory allocation before opt available
+            )
+        else:
+            if get_rank() == 0:
+                logging.debug("Use additional sparse embeddings on node %s", ntype)
+            part_policy = g.get_node_partition_policy(ntype)
+            sparse_embed = DistEmbedding(
+                g.number_of_nodes(ntype),
+                embed_size,
+                embed_name + "_" + ntype,
+                init_emb,
+                part_policy,
+            )
+
+        return sparse_embed
 
     # pylint: disable=unused-argument
     def forward(self, input_feats, input_nodes):
@@ -420,6 +429,98 @@ class GSPureLearnableInputLayer(GSNodeInputLayer):
         which is given in class initialization.
         """
         return self._use_wholegraph_sparse_emb
+
+
+class GSPureLearnableInputLayer4GraphFromMetadata(GSPureLearnableInputLayer):
+    """ The node encoder input layer for learnable embeddings for every node.
+
+    The input layer is dedicated for models that use a graph from metadata for initialization.
+    Because graphs from metadata have no learnable embedding stored, this input layer will
+    initialize the sparse embedding with an empty zero tensor that has 0 number of samples, and
+    the same embedding size as the rest dimensions. In the forward() function, this input layer
+    assume there is an `embed` feature in the inputfeatures. And the forward() function will
+    extract this `embed` feature and use it as the original spares embeddings. The rest operation
+    will be identical to the ``GSPureLearnableInputLayer``.
+    
+    This input layer could be used for real-time inference where trained model will be initialized
+    by ``GSGraphFromMetadata``, e.g., ``GSDglGraphFromMetadata`` or ``GSDglDistGraphFromMetadata.``
+
+    .. versionadded:: 0.5.1
+        Add ``GSPureLearnableInputLayer4GraphFromMetadata`` in v0.5.1 to support input layer that
+        use ``GSGraphFromMetadata`` for intialization.
+
+    Parameters
+    ----------
+    g: GSGraphFromMetadata
+        The input graphs created by using GSGraphMetadata, e.g., GSDglGraphFromMetadata or
+        GSDglDistGraphFromMetadata.
+    embed_size : int
+        The output embedding size.
+    use_wholegraph_sparse_emb : bool
+        Whether or not to use WholeGraph to host embeddings for sparse updates. Default:
+        False.
+    """
+    def __init__(self,
+                 g,
+                 embed_size,
+                 use_wholegraph_sparse_emb=False):
+        super(GSPureLearnableInputLayer4GraphFromMetadata, self).__init__(
+            g=g,
+            embed_size=embed_size,
+            use_wholegraph_sparse_emb=False     # not support on graphs from metadata
+        )
+
+    # pylint: disable=unused-argument
+    def _init_node_embeddings(self, g, ntype, embed_size):
+        """ Initialize an empty zero tensor as node embedding for graphs created from metadata.
+        
+        This function overwrites GSPureLearnableInputLayer's same function by only return an
+        empty zero tensor as sparse embeddings.
+        """
+        return th.zero(0, embed_size)
+
+    def forward(self, input_feats, input_nodes):
+        """ Input layer forward computation .
+
+        This function overwrites ``GSPureLearnableInputLayer``'s same function by only replacing the
+        computation of sparse embeddings with extraction of the `embed` features from `input_feats`
+        variable for cases like real-time inference.
+
+        Parameters
+        ----------
+        input_feats: dict of Tensor
+            The input features in the format of {[ntype|'lm'|'embed']: feats}. This layer assume
+            there is a key, 'embed', and its value is another dictionary in the format of {ntype:
+            tensor}.
+        input_nodes: dict of Tensor
+            The input node indexes in the format of {ntype: indexes}. NOT used as learnable
+            embeddings are in the `input_feats` now.
+
+        Returns
+        -------
+        embs: dict of Tensor
+            The projected node embeddings in the format of {ntype: emb}.
+        """
+        assert isinstance(input_feats, dict), 'The input features should be in a dict.'        
+        assert isinstance(input_nodes, dict), 'The input node IDs should be in a dict.'
+        embs = {}
+        for ntype in input_nodes:
+            emb = None
+
+            if len(input_nodes[ntype]) == 0:
+                embs[ntype] = self.sparse_embeds[ntype]
+                continue
+
+            assert EMBEDDING_KEY in input_feats, ('The input features should '
+                f'contains a key: {EMBEDDING_KEY} for using learnable embeddings.')
+            assert ntype in input_feats[EMBEDDING_KEY], (f'The learnable embeddings '
+                f'should include a dictionary that contains a key: {ntype}, but got '
+                f'{input_feats[EMBEDDING_KEY]}.')
+            emb = input_feats[EMBEDDING_KEY][ntype]
+
+            if emb is not None:
+                embs[ntype] = emb
+        return embs
 
 
 class GSNodeEncoderInputLayer(GSNodeInputLayer):
@@ -602,7 +703,7 @@ class GSNodeEncoderInputLayer(GSNodeInputLayer):
                             num_ffn_layers_in_input, ffn_activation, dropout)
 
     def _init_node_embeddings(self, g, ntype, embed_size):
-        embed_name = "embed"
+        embed_name = EMBEDDING_KEY
 
         if self._use_wholegraph_sparse_emb:
             if get_rank() == 0:
@@ -772,26 +873,29 @@ class GSNodeEncoderInputLayer(GSNodeInputLayer):
         return self._use_wholegraph_sparse_emb
 
 
-class GSNodeRealtimeEncoderInputLayer(GSNodeEncoderInputLayer):
-    """ The node encoder input layer for real-time inference.
+class GSNodeEncoderInputLayer4GraphFromMetadata(GSNodeEncoderInputLayer):
+    """ The node encoder input layer for ``GSGraphFromMetadata``.
 
-    The input layer is dedicated for real-time inference, which will use a graph from metadata
-    for initialization. Because graphs from metadata have no learnable embedding stored, this
-    input layer will initialize the sparse embedding with an empty tensor that has 0 number of
-    samples, and the same embedding size as the rest dimensions.
+    The input layer is dedicated for models that use a graph from metadata for initialization.
+    Because graphs from metadata have no learnable embedding stored, this input layer will
+    initialize the sparse embedding with an empty zero tensor that has 0 number of samples, and
+    the same embedding size as the rest dimensions. In the forward() function, this input layer
+    assume there is an `embed` feature in the inputfeatures. And the forward() function will
+    extract this `embed` feature and use it as the original spares embeddings. The rest operation
+    will be identical to the ``GSNodeEncoderInputLayer``.
     
-    In the forward() function, this input layer assume there is an `lm` feature in payload graph.
-    The forward() function will extract this `lm` feature and use it as the original spares
-    embeddings. The rest operation will be identical to the GSNodeEncoderInputLayer.
+    This input layer could be used for real-time inference where trained model will be initialized
+    by ``GSGraphFromMetadata``, e.g., ``GSDglGraphFromMetadata`` or ``GSDglDistGraphFromMetadata.``
 
     .. versionadded:: 0.5.1
-        Add ``GSNodeRealtimeEncoderInputLayer`` in v0.5.1 to support learnable embeddings as one
-        of the input features for real-time inference.
+        Add ``GSNodeEncoderInputLayer4GraphFromMetadata`` in v0.5.1 to support input layer that
+        use ``GSGraphFromMetadata`` for intialization.
 
     Parameters
     ----------
-    g: DistGraph
-        The input DGL distributed graph.
+    g: GSGraphFromMetadata
+        The input graphs created by using GSGraphMetadata, e.g., GSDglGraphFromMetadata or
+        GSDglDistGraphFromMetadata.
     feat_size : dict of int or dict of FeatureGroupSize
         The original feat size of each node type in the format of {str: int}.
         If a node has multiple feature groups, it is in the format of {str: FeatureGroupSize}
@@ -830,32 +934,33 @@ class GSNodeRealtimeEncoderInputLayer(GSNodeEncoderInputLayer):
                  ffn_activation=F.relu,
                  cache_embed=False,
                  use_wholegraph_sparse_emb=False):
-        super(GSNodeRealtimeEncoderInputLayer, self).__init__(g=g,
-                                                              feat_size=feat_size,
-                                                              embed_size,
-                                                              activation=activation,
-                                                              dropout=dropout,
-                                                              use_node_embeddings=use_node_embeddings,
-                                                              force_no_embeddings=force_no_embeddings,
-                                                              num_ffn_layers_in_input=num_ffn_layers_in_input,
-                                                              ffn_activation=ffn_activation,
-                                                              cache_embed=cache_embed,
-                                                              use_wholegraph_sparse_emb=use_wholegraph_sparse_emb)
-        
+        super(GSNodeEncoderInputLayer4GraphFromMetadata, self).__init__(
+            g=g,
+            feat_size=feat_size,
+            embed_size=embed_size,
+            activation=activation,
+            dropout=dropout,
+            use_node_embeddings=use_node_embeddings,
+            force_no_embeddings=force_no_embeddings,
+            num_ffn_layers_in_input=num_ffn_layers_in_input,
+            ffn_activation=ffn_activation,
+            cache_embed=False,                  # not support on graphs from metadata
+            use_wholegraph_sparse_emb=False)    # not support on graphs from metadata
 
+    # pylint: disable=unused-argument
     def _init_node_embeddings(self, g, ntype, embed_size):
         """ Initialize an empty zero tensor as node embedding for graphs created from metadata.
         
         This function overwrites GSNodeEncoderInputLayer's same function by only return an
         empty zero tensor as sparse embeddings.
         """
-        return th.zero(0, emb_size)
+        return th.zero(0, embed_size)
 
     def forward(self, input_feats, input_nodes):
         """ Input layer forward computation.
 
-        This function overwrites GSNodeEncoderInputLayer's same function by only replacing the
-        computation of sparse embeddings with extraction of the `lm` features from `input_feats`
+        This function overwrites ``GSNodeEncoderInputLayer``'s same function by only replacing the
+        computation of sparse embeddings with extraction of the `embed` features from `input_feats`
         variable for cases like real-time inference.
 
         Parameters
