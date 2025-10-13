@@ -33,6 +33,9 @@ from ..config.config import FeatureGroup
 
 from ..wholegraph import is_wholegraph_embedding
 
+
+EMBEDDING_KEY = 'embeb'
+
 def split_full_edge_list(g, etype, rank):
     ''' Split the full edge list of a graph.
     '''
@@ -44,11 +47,10 @@ def split_full_edge_list(g, etype, rank):
     end = g.num_edges(etype) // get_world_size() * (rank + 1)
     return th.arange(start, end)
 
-def prepare_batch_input(g, input_nodes,
-                        dev='cpu', feat_field='feat'):
+def prepare_batch_input(g, input_nodes, dev='cpu', feat_field='feat'):
     """ Prepare minibatch input features
 
-    Note: The output is stored in dev.
+    Note: The output is stored in the dev device.
 
     .. versionchanged:: 0.5.0
         When feat_field is a dict, its value(s) can be a list of str or a list
