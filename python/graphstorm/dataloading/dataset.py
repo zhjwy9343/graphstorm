@@ -227,6 +227,7 @@ def prepare_blocks_edge_feats(g, input_blocks, efeat_fields, device='cpu'):
 
     return block_edge_input_feats
 
+
 class GSgnnData():
     """ The GraphStorm data class.
 
